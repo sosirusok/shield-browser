@@ -37,6 +37,9 @@ app.commandLine.appendSwitch('disable-domain-reliability');     // 구글 도메
 app.commandLine.appendSwitch('disable-breakpad');               // 크래시 리포트 전송 끄기
 app.commandLine.appendSwitch('disable-quic');                   // QUIC(HTTP/3) 끄기 — 학교망 UDP 차단으로 인한 접속 실패 회피
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512'); // 저RAM 보호
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');  // 디스크에 GPU 셰이더 캐시 안 남김(노트북 독립성↑)
+app.commandLine.appendSwitch('enable-gpu-rasterization');       // GPU 가속 렌더링(속도↑)
+app.commandLine.appendSwitch('enable-zero-copy');               // GPU 합성 zero-copy(스크롤/렌더 속도↑)
 
 const TOOLBAR_HEIGHT = 88;          // 탭바(36) + 내비/주소창(52)
 const PARTITION = 'shieldweb';      // 비영속(메모리 전용) 파티션 — 디스크에 흔적 안 남김
@@ -351,8 +354,9 @@ async function boot() {
   app.userAgentFallback = CLEAN_UA;
   nativeTheme.themeSource = 'dark';
 
-  // 이전 버전(영속 파티션) 잔존 데이터 삭제 — 디스크 흔적 제거
+  // 디스크 흔적 제거(노트북 독립성↑): 이전 영속 파티션 + 기본 세션의 잔존 데이터/캐시 정리
   try { const oldp = session.fromPartition('persist:web'); await oldp.clearStorageData(); await oldp.clearCache(); } catch {}
+  try { await session.defaultSession.clearStorageData(); await session.defaultSession.clearCache(); } catch {}
 
   const sess = session.fromPartition(PARTITION);   // 메모리 전용(비영속)
   hardenSession(sess);
