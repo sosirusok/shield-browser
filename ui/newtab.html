@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:;" />
+<title>새 탭</title>
+<style>
+  :root{ --bg:#0f1115; --txt:#cdd3de; --dim:#8b93a3; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font:14px/1.5 "Segoe UI",system-ui,sans-serif;user-select:none}
+  .wrap{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px}
+  .logo{font-size:46px;line-height:1}
+  h1{font-size:22px;margin:10px 0 2px;letter-spacing:-.3px}
+  .sub{color:var(--dim);font-size:13px;margin:0 0 34px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:22px 18px;width:100%;max-width:560px}
+  @media(max-width:560px){.grid{grid-template-columns:repeat(2,1fr)}}
+  .tile{display:flex;flex-direction:column;align-items:center;gap:10px;text-decoration:none}
+  .badge{width:74px;height:74px;border-radius:20px;display:grid;place-items:center;
+    color:#fff;font-weight:800;font-size:24px;letter-spacing:.5px;
+    box-shadow:0 6px 18px #0007;transition:transform .12s, box-shadow .12s}
+  .tile:hover .badge{transform:translateY(-4px);box-shadow:0 12px 26px #0009}
+  .label{font-size:13px;color:var(--dim)}
+  .tile:hover .label{color:var(--txt)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">🛡</div>
+    <h1>Shield</h1>
+    <p class="sub">바로가기를 누르거나, 위 주소창에 링크를 붙여넣으세요</p>
+    <div class="grid">
+      <a class="tile" href="https://www.naver.com"><span class="badge" style="background:#03C75A">N</span><span class="label">네이버</span></a>
+      <a class="tile" href="https://www.google.com"><span class="badge" style="background:#4285F4">G</span><span class="label">구글</span></a>
+      <a class="tile" href="https://www.youtube.com"><span class="badge" style="background:#FF0000">YT</span><span class="label">유튜브</span></a>
+      <a class="tile" href="https://chatgpt.com"><span class="badge" style="background:#10A37F">GPT</span><span class="label">챗지피티</span></a>
+      <a class="tile" href="https://gemini.google.com"><span class="badge" style="background:#8B5CF6">GM</span><span class="label">제미나이</span></a>
+      <a class="tile" href="https://claude.ai"><span class="badge" style="background:#D97757">CL</span><span class="label">클로드</span></a>
+      <a class="tile" href="https://grok.com"><span class="badge" style="background:#1f2229">GR</span><span class="label">그록</span></a>
+      <a class="tile" href="https://www.instagram.com"><span class="badge" style="background:linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)">IG</span><span class="label">인스타그램</span></a>
+    </div>
+  </div>
+</body>
+</html>

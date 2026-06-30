@@ -55,7 +55,11 @@ function reflectActive() {
 // ───────── 메인 → 렌더러 이벤트 ─────────
 S.on('tab:created', ({ id }) => { tabState.set(id, { title: '새 탭' }); renderTab(id); });
 S.on('tab:updated', (meta) => { tabState.set(meta.id, { ...tabState.get(meta.id), ...meta }); renderTab(meta.id); if (meta.id === activeId) reflectActive(); });
-S.on('tab:activated', (id) => { activeId = id; reflectActive(); });
+S.on('tab:activated', (id) => {
+  activeId = id; reflectActive();
+  const st = tabState.get(id) || {};
+  if (!st.url || st.url === 'about:blank') urlInput.focus();   // 새 탭/스피드다이얼이면 주소창에 바로 입력 가능
+});
 S.on('tab:closed', (id) => { removeTab(id); });
 S.on('stats:blocked', (n) => { blockedEl.textContent = n; });
 
@@ -89,7 +93,6 @@ async function openPanel() {
   const s = await S.getSettings();
   $('opt-blockAds').checked = !!s.blockAds;
   $('opt-denyPermissions').checked = !!s.denyPermissions;
-  $('opt-eraseOnExit').checked = !!s.eraseOnExit;
   panel.classList.remove('hidden');
   panelOpen = true;
   S.setPanel(true);   // 페이지뷰 숨김
@@ -103,12 +106,11 @@ panel.addEventListener('mousedown', (e) => { if (e.target === panel) closePanel(
 const bind = (optId, key) => $(optId).addEventListener('change', (e) => S.setSettings({ [key]: e.target.checked }));
 bind('opt-blockAds', 'blockAds');
 bind('opt-denyPermissions', 'denyPermissions');
-bind('opt-eraseOnExit', 'eraseOnExit');
 
 $('clear').onclick = async () => {
   await S.clearData();
   $('clear').textContent = '✓ 삭제됨';
-  setTimeout(() => $('clear').textContent = '🧹 지금 모든 사이트 데이터 지우기', 1400);
+  setTimeout(() => $('clear').textContent = '🧹 지금 바로 데이터 지우기', 1400);
 };
 
 // ───────── 키보드 단축키 ─────────

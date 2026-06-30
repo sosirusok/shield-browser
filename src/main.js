@@ -4,23 +4,30 @@
  * Shield Browser — main process
  *
  * 구조
- *  - 창의 메인 webContents = 브라우저 "크롬"(상단 툴바/탭바)  →  ui/index.html
+ *  - 창의 메인 webContents = 브라우저 "크롬"(상단 툴바/탭바)  →  ui/index.html (제목표시줄 없음)
  *  - 각 탭 = WebContentsView (win.contentView 위에 겹쳐 올림). 활성 탭만 보임.
  *  - 광고/트래커 차단 = @ghostery/adblocker-electron (EasyList + EasyPrivacy 프리빌트)
- *  - 프라이버시 하드닝 = 권한 기본거부, DNT/GPC 헤더, WebRTC IP 누출 차단,
- *    텔레메트리/구글서비스 비활성화, 깨끗한 UA로 핑거프린트 표면 축소
- *  - http/https 둘 다 지원. 베어 도메인은 https 우선 시도 후 실패하면 http 자동 폴백
- *    (선생님들의 http 수업 사이트도 열림). 명시적 http:// 링크는 그대로 http 로 로드.
+ *  - 새 탭/첫 화면 = ui/newtab.html (바로가기 스피드다이얼). 흰 화면 대신.
  *
- * ※ 이 앱은 "웹사이트/광고사로부터의" 프라이버시를 보호합니다.
- *   기기 소유자(학교 등)가 OS 관리자 권한으로 설치한 모니터링은 우회하지 않습니다 — 원리상 불가하며 의도하지도 않음.
+ * 프라이버시(이 노트북에 대한):
+ *  - 세션은 메모리 전용(비영속) — 쿠키/스토리지/캐시를 디스크에 남기지 않음. 종료하면 전부 사라짐.
+ *    → 자동 로그인/방문 흔적이 노트북에 안 남음(매번 새 시작). 광고차단·DNT/GPC·권한 기본거부 유지.
+ *  - 깨끗한 UA(실제 Chromium 버전과 일치)로 핑거프린트 표면 축소, 텔레메트리/구글서비스 off.
+ *
+ * 접속성:
+ *  - http/https 둘 다. 베어 도메인은 기본 http 로 엶(선생님 http 사이트 등). https 사이트는 서버가 알아서 https 로 리다이렉트.
+ *  - QUIC(HTTP/3) 비활성 — 학교망이 UDP/QUIC 을 막아 생기는 접속 실패(chess.com 등) 회피, TCP 로만 연결.
+ *  - 메인프레임 연결 실패는 1회 자동 재시도(학교망의 일시적 TLS 끊김 흡수).
+ *
+ * ※ "웹사이트/광고사로부터의" 프라이버시 + 노트북 디스크 흔적 최소화용.
+ *   기기 소유자(학교)가 OS 관리자 권한으로 설치한 모니터링이나 통신사/기관의 망 차단은 우회하지 않음 — 원리상 불가하며 의도하지도 않음.
  */
 
 const { app, BrowserWindow, WebContentsView, session, ipcMain, shell, nativeTheme } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
-// ───────────────────────────── 저메모리 / 프라이버시 런타임 플래그 (app ready 이전 필수) ─────────────────────────────
+// ───────────────────────────── 저메모리 / 프라이버시 / 접속성 런타임 플래그 (app ready 이전 필수) ─────────────────────────────
 app.commandLine.appendSwitch('disable-features', [
   'OptimizationGuideModelDownloading',
   'OptimizationHints',
@@ -32,22 +39,23 @@ app.commandLine.appendSwitch('disable-features', [
 ].join(','));
 app.commandLine.appendSwitch('disable-domain-reliability');     // 구글 도메인 신뢰성 텔레메트리 끄기
 app.commandLine.appendSwitch('disable-breakpad');               // 크래시 리포트 전송 끄기
+app.commandLine.appendSwitch('disable-quic');                   // QUIC(HTTP/3) 끄기 — 학교망 UDP 차단으로 인한 접속 실패 회피
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512'); // 저RAM 보호
 
 const TOOLBAR_HEIGHT = 88;          // 탭바(36) + 내비/주소창(52)
-const PARTITION = 'persist:web';    // 웹 콘텐츠용 영속 파티션(쿠키/로그인 유지)
+const PARTITION = 'shieldweb';      // 비영속(메모리 전용) 파티션 — 디스크에 흔적 안 남김
 const USERDATA = () => app.getPath('userData');
 const SETTINGS_PATH = () => path.join(USERDATA(), 'settings.json');
+const NEWTAB = path.join(__dirname, '..', 'ui', 'newtab.html');   // 스피드다이얼(새 탭)
 
-// 깨끗한(흔한) UA — 핑거프린트로 튀지 않게. Electron/앱 토큰 제거.
+// 깨끗한 UA — 실제 Chromium(Electron 35 = Chrome 134)과 버전 일치 → 봇 차단/핑거프린트 튐 방지, 크롬 사용자와 블렌딩.
 const CLEAN_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
 
 // ───────────────────────────── 설정 ─────────────────────────────
 const DEFAULT_SETTINGS = {
   blockAds: true,
   denyPermissions: true,
-  eraseOnExit: false,
 };
 let settings = { ...DEFAULT_SETTINGS };
 
@@ -134,12 +142,6 @@ function setAdblockEnabled(sess, enabled) {
 }
 
 // ───────────────────────────── 프라이버시 하드닝 ─────────────────────────────
-// https 우선→실패 시 http 폴백 상태 (광고차단 onBeforeRequest 와 충돌하지 않도록 내비게이션 단에서만 처리)
-const noUpgradeHosts = new Set();   // https 가 안 돼 http 로 고정한 호스트(세션 내 재시도 생략)
-const upgradedFrom = new Map();     // 자동 https URL -> 폴백할 http URL
-
-function hostOf(u) { try { return new URL(u).hostname; } catch { return ''; } }
-
 function hardenSession(sess) {
   sess.setUserAgent(CLEAN_UA);
 
@@ -173,7 +175,7 @@ async function clearAllData(sess) {
 
 // ───────────────────────────── 탭 관리 ─────────────────────────────
 let win = null;
-const tabs = new Map();   // id -> { id, view }
+const tabs = new Map();   // id -> { id, view, errURL, retry }
 let activeId = null;
 let nextId = 1;
 
@@ -193,7 +195,8 @@ function sendTabUpdate(id) {
   if (!t || !win || win.isDestroyed()) return;
   const wc = t.view.webContents;
   let url = wc.getURL();
-  if (url.startsWith('data:')) url = t.errURL || '';   // 에러페이지 data:URL 은 감추고 실패한 원래 URL 표시
+  if (url.startsWith('data:')) url = t.errURL || '';                  // 에러페이지 data:URL → 실패한 원래 URL
+  else if (url === 'about:blank' || url.includes('newtab.html')) url = '';  // 스피드다이얼/빈 탭 → 주소창 빈칸
   win.webContents.send('tab:updated', {
     id,
     url,
@@ -218,7 +221,7 @@ function createTab(input) {
       backgroundThrottling: true,   // 비활성 탭 자원 절약
     },
   });
-  const tab = { id, view, errURL: '' };
+  const tab = { id, view, errURL: '', retry: {} };
   const wc = view.webContents;
   wc.setWebRTCIPHandlingPolicy('default_public_interface_only'); // 로컬 IP 누출 차단
 
@@ -236,20 +239,19 @@ function createTab(input) {
   const update = () => sendTabUpdate(id);
   wc.on('did-start-loading', update);
   wc.on('did-stop-loading', update);
-  wc.on('did-navigate', () => { if (!wc.getURL().startsWith('data:')) tab.errURL = ''; update(); });
+  wc.on('did-navigate', () => { const u = wc.getURL(); if (!u.startsWith('data:')) { tab.errURL = ''; tab.retry = {}; } update(); });
   wc.on('did-navigate-in-page', update);
   wc.on('page-title-updated', update);
   wc.on('did-fail-load', (e, code, desc, validatedURL, isMainFrame) => {
-    if (!isMainFrame || code === -3) return; // -3 = ERR_ABORTED(무시)
-    // 자동 https 가 실패한 거면 원래 http 로 자동 폴백 (선생님 http 사이트 등)
-    if (validatedURL.startsWith('https://') && upgradedFrom.has(validatedURL)) {
-      const orig = upgradedFrom.get(validatedURL);
-      upgradedFrom.delete(validatedURL);
-      const h = hostOf(orig); if (h) noUpgradeHosts.add(h);
-      wc.loadURL(orig);
+    if (!isMainFrame || code === -3) return;          // -3 = ERR_ABORTED(무시)
+    const isCert = code <= -200 && code > -300;        // 인증서 오류(-2xx)는 보안상 재시도 안 함
+    const tries = tab.retry[validatedURL] || 0;
+    if (!isCert && tries < 1 && validatedURL && !validatedURL.startsWith('data:')) {
+      tab.retry[validatedURL] = tries + 1;             // 학교망 일시적 끊김(SSL/연결) 흡수: 1회 자동 재시도
+      setTimeout(() => { if (!wc.isDestroyed()) wc.loadURL(validatedURL); }, 500);
       return;
     }
-    tab.errURL = validatedURL;   // 주소창엔 data:URL 대신 실패한 원래 URL 표시
+    tab.errURL = validatedURL;                         // 주소창엔 data:URL 대신 실패한 원래 URL 표시
     wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(errorPage(validatedURL, desc, code)));
   });
 
@@ -259,7 +261,7 @@ function createTab(input) {
 
   win.webContents.send('tab:created', { id });
   activateTab(id);
-  if (!input || input === 'about:blank' || !loadResolved(wc, input)) wc.loadURL('about:blank');
+  if (!input || input === 'about:blank' || !loadResolved(wc, input)) wc.loadFile(NEWTAB);  // 빈 입력 → 스피드다이얼
   return id;
 }
 
@@ -283,42 +285,25 @@ function closeTab(id) {
   if (activeId === id) {
     const remaining = [...tabs.keys()];
     if (remaining.length) activateTab(remaining[remaining.length - 1]);
-    else { activeId = null; createTab('about:blank'); }
+    else { activeId = null; createTab(); }
   }
 }
 
-// URL 정규화 — 검색 엔진 없음. URL 같으면 이동, 아니면 null.
+// URL 정규화 — 검색 엔진 없음. URL 같으면 이동, 아니면 null. 베어 도메인은 기본 http.
 function normalizeURL(input) {
   const s = (input || '').trim();
   if (!s) return null;
-  if (/^(https?|file|about):/i.test(s)) return s;                 // 명시 스킴 그대로 (http 는 http!)
+  if (/^(https?|file|about):/i.test(s)) return s;                 // 명시 스킴 그대로
   if (/^[a-z][a-z0-9+.\-]*:/i.test(s)) return null;              // 그 외 스킴(ftp:/javascript:/chrome:/data: 등) 거부
-  // 로컬호스트 / 루프백(IPv4·IPv6) → http
-  if (/^(localhost|127(\.\d{1,3}){3}|\[[0-9a-f:]+\])([:/]|$)/i.test(s)) return 'http://' + s;
-  if (/^[^\s/]+\.[^\s/]{2,}/.test(s)) return 'https://' + s;      // 도메인.tld → https 우선
+  if (/^(localhost|127(\.\d{1,3}){3}|\[[0-9a-f:]+\])([:/]|$)/i.test(s)) return 'http://' + s;  // 로컬/루프백
+  if (/^[^\s/]+\.[^\s/]{2,}/.test(s)) return 'http://' + s;       // 도메인.tld → 기본 http (https 사이트는 서버가 리다이렉트)
   return null;                                                    // 검색어로 보이면 이동 안 함
 }
 
-// 내비게이션 해석 — https 우선 + http 폴백 등록. 입력에 스킴이 있으면 폴백 없음.
-function resolveNavigation(input) {
-  const url = normalizeURL(input);
-  if (!url) return null;
-  const hadScheme = /^[a-z][a-z0-9+.\-]*:/i.test(String(input).trim());
-  if (url.startsWith('https://') && !hadScheme) {
-    const host = hostOf(url);
-    if (host && noUpgradeHosts.has(host)) {                       // 이번 세션에 https 실패한 호스트면 바로 http
-      return { url: 'http://' + url.slice('https://'.length), fallback: null };
-    }
-    return { url, fallback: 'http://' + url.slice('https://'.length) };
-  }
-  return { url, fallback: null };
-}
-
 function loadResolved(wc, input) {
-  const r = resolveNavigation(input);
-  if (!r) return false;
-  if (r.fallback) upgradedFrom.set(r.url, r.fallback);
-  wc.loadURL(r.url);
+  const url = normalizeURL(input);
+  if (!url) return false;
+  wc.loadURL(url);
   return true;
 }
 
@@ -329,7 +314,10 @@ function escHtml(s) {
 
 function errorPage(url, desc, code) {
   const safe = escHtml(url);
-  const httpAlt = url && url.startsWith('https://') ? 'http://' + url.slice('https://'.length) : '';
+  let alt = '';
+  if (url && url.startsWith('https://')) alt = 'http://' + url.slice('https://'.length);
+  else if (url && url.startsWith('http://')) alt = 'https://' + url.slice('http://'.length);
+  const altLabel = alt.startsWith('https://') ? 'https로 열기' : 'http로 열기';
   return `<!doctype html><meta charset="utf-8"><title>열 수 없음</title>
   <style>body{font:15px system-ui;background:#0f1115;color:#cdd3de;display:grid;place-items:center;height:100vh;margin:0}
   .b{max-width:460px;text-align:center}.u{color:#7aa2f7;word-break:break-all;margin:6px 0}
@@ -337,12 +325,12 @@ function errorPage(url, desc, code) {
   border:1px solid #2b3a22;padding:8px 16px;border-radius:8px}a:hover{background:#9ece6a1a}</style>
   <div class="b"><h2>페이지를 열 수 없어요</h2><p class="u">${safe}</p>
   <small>${escHtml(desc)}${code ? ' (' + code + ')' : ''}</small><br>
-  <a href="${safe}">↻ 다시 시도</a>${httpAlt ? `<a href="${escHtml(httpAlt)}">http로 열기</a>` : ''}</div>`;
+  <a href="${safe}">↻ 다시 시도</a>${alt ? `<a href="${escHtml(alt)}">${altLabel}</a>` : ''}</div>`;
 }
 
 // ───────────────────────────── IPC ─────────────────────────────
 function registerIPC(sess) {
-  ipcMain.handle('tab:new', (e, url) => createTab(url || 'about:blank'));
+  ipcMain.handle('tab:new', (e, url) => createTab(url));
   ipcMain.handle('tab:close', (e, id) => closeTab(id));
   ipcMain.handle('tab:activate', (e, id) => activateTab(id));
   ipcMain.handle('tab:navigate', (e, { id, url }) => {
@@ -374,7 +362,7 @@ async function boot() {
   app.userAgentFallback = CLEAN_UA;
   nativeTheme.themeSource = 'dark';
 
-  const sess = session.fromPartition(PARTITION);
+  const sess = session.fromPartition(PARTITION);   // 메모리 전용(비영속)
   hardenSession(sess);
   try { await setupAdblock(sess); }
   catch (err) { console.error('[adblock] 초기화 실패(차단 없이 계속):', err.message); }
@@ -383,7 +371,10 @@ async function boot() {
     width: 1200, height: 800, minWidth: 680, minHeight: 480,
     backgroundColor: '#0f1115',
     title: 'Shield',
+    icon: path.join(__dirname, '..', 'assets', 'shield.ico'),
     autoHideMenuBar: true,
+    titleBarStyle: 'hidden',                                        // OS 제목표시줄 제거 → 화면 공간 회복
+    titleBarOverlay: { color: '#171a21', symbolColor: '#cdd3de', height: 36 }, // 최소/최대/닫기 버튼은 탭바에 겹쳐 유지
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -407,7 +398,7 @@ async function boot() {
     }
   }, 300);
 
-  win.webContents.on('did-finish-load', () => createTab('about:blank'));
+  win.webContents.on('did-finish-load', () => createTab());   // 첫 탭 = 스피드다이얼
   win.on('resize', relayout);
   win.on('closed', () => { clearInterval(statsTimer); win = null; });
 
@@ -415,14 +406,6 @@ async function boot() {
 }
 
 app.whenReady().then(boot);
-
-app.on('before-quit', async (e) => {
-  if (settings.eraseOnExit) {
-    e.preventDefault();
-    try { await clearAllData(session.fromPartition(PARTITION)); } catch {}
-    app.exit(0);
-  }
-});
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) boot(); });
