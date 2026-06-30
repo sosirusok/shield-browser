@@ -62,6 +62,22 @@ function saveSettings() {
   try { fs.writeFileSync(SETTINGS_PATH(), JSON.stringify(settings, null, 2)); } catch {}
 }
 
+// ───────────────────────────── 바로가기(스피드다이얼) — 사용자 편집 가능, 디스크 저장 ─────────────────────────────
+const DEFAULT_SHORTCUTS = [
+  { name: '네이버', url: 'https://www.naver.com', color: '#03C75A', mark: 'N' },
+  { name: '구글', url: 'https://www.google.com', color: '#4285F4', mark: 'G' },
+  { name: '유튜브', url: 'https://www.youtube.com', color: '#FF0000', mark: 'YT' },
+  { name: '챗지피티', url: 'https://chatgpt.com', color: '#10A37F', mark: 'GPT' },
+  { name: '제미나이', url: 'https://gemini.google.com', color: '#8B5CF6', mark: 'GM' },
+  { name: '클로드', url: 'https://claude.ai', color: '#D97757', mark: 'CL' },
+  { name: '그록', url: 'https://grok.com', color: '#1f2229', mark: 'GR' },
+  { name: '인스타그램', url: 'https://www.instagram.com', color: '#C13584', mark: 'IG' },
+];
+let shortcuts = DEFAULT_SHORTCUTS.slice();
+const SHORTCUTS_PATH = () => path.join(USERDATA(), 'shortcuts.json');
+function loadShortcuts() { try { const a = JSON.parse(fs.readFileSync(SHORTCUTS_PATH(), 'utf8')); if (Array.isArray(a) && a.length) shortcuts = a; } catch {} }
+function saveShortcuts() { try { fs.writeFileSync(SHORTCUTS_PATH(), JSON.stringify(shortcuts, null, 2)); } catch {} }
+
 // ───────────────────────────── 방문 기록 (메모리 전용, 세션 한정) ─────────────────────────────
 const history = [];
 function pushHistory(url) {
@@ -198,6 +214,18 @@ function sendTabUpdate(id) {
   });
 }
 
+// 스피드다이얼 로드 — 바로가기 목록을 URL 해시로 전달(페이지가 렌더). 페이지뷰엔 IPC 노출 안 함(안전).
+function loadNewTab(wc, tab) {
+  tab.errURL = '';
+  tab.isNewtab = true;
+  wc.loadFile(NEWTAB, { hash: encodeURIComponent(JSON.stringify(shortcuts)) });
+}
+function refreshNewTabs() {
+  for (const t of tabs.values()) {
+    try { if (t.isNewtab && !t.view.webContents.isDestroyed()) loadNewTab(t.view.webContents, t); } catch {}
+  }
+}
+
 function createTab(input) {
   if (!win || win.isDestroyed()) return;
   const id = nextId++;
@@ -208,7 +236,7 @@ function createTab(input) {
       spellcheck: false, webSecurity: true, backgroundThrottling: true,
     },
   });
-  const tab = { id, view, errURL: '', retry: {} };
+  const tab = { id, view, errURL: '', retry: {}, isNewtab: false };
   const wc = view.webContents;
   wc.setWebRTCIPHandlingPolicy('default_public_interface_only'); // 로컬 IP 누출 차단
 
@@ -226,6 +254,7 @@ function createTab(input) {
   wc.on('did-stop-loading', update);
   wc.on('did-navigate', () => {
     const u = wc.getURL();
+    tab.isNewtab = u.includes('newtab.html');
     if (!u.startsWith('data:')) { tab.errURL = ''; tab.retry = {}; }
     pushHistory(u);
     update();
@@ -252,7 +281,7 @@ function createTab(input) {
 
   win.webContents.send('tab:created', { id });
   activateTab(id);
-  if (!input || input === 'about:blank' || !loadResolved(wc, input)) wc.loadFile(NEWTAB);
+  if (!input || input === 'about:blank' || !loadResolved(wc, input)) loadNewTab(wc, tab);
   return id;
 }
 
@@ -337,6 +366,26 @@ function registerIPC(sess) {
   ipcMain.handle('history:get', () => history.slice().reverse());   // 최신 먼저
   ipcMain.handle('history:clear', () => { history.length = 0; return true; });
 
+  // 바로가기 편집(사용자 관리). 저장하면 열린 새 탭(스피드다이얼)들을 갱신.
+  ipcMain.handle('shortcuts:get', () => shortcuts);
+  ipcMain.handle('shortcuts:save', (e, list) => {
+    if (Array.isArray(list)) {
+      shortcuts = list
+        .filter((s) => s && s.name && s.url)
+        .slice(0, 24)
+        .map((s) => {
+          const o = { name: String(s.name).slice(0, 24), url: normalizeURL(String(s.url).trim()) || String(s.url).trim() };
+          if (s.color) o.color = String(s.color).slice(0, 32);
+          if (s.mark) o.mark = String(s.mark).slice(0, 4);
+          return o;
+        });
+      saveShortcuts();
+      refreshNewTabs();
+    }
+    return shortcuts;
+  });
+  ipcMain.handle('shortcuts:reset', () => { shortcuts = DEFAULT_SHORTCUTS.slice(); saveShortcuts(); refreshNewTabs(); return shortcuts; });
+
   ipcMain.handle('settings:get', () => settings);
   ipcMain.handle('settings:set', (e, patch) => {
     settings = { ...settings, ...patch };
@@ -351,6 +400,7 @@ function registerIPC(sess) {
 // ───────────────────────────── 앱 부팅 ─────────────────────────────
 async function boot() {
   loadSettings();
+  loadShortcuts();
   app.userAgentFallback = CLEAN_UA;
   nativeTheme.themeSource = 'dark';
 

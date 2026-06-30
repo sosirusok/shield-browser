@@ -27,6 +27,11 @@ contextBridge.exposeInMainWorld('shield', {
   getHistory: () => invoke('history:get'),
   clearHistory: () => invoke('history:clear'),
 
+  // 바로가기 편집
+  getShortcuts: () => invoke('shortcuts:get'),
+  saveShortcuts: (list) => invoke('shortcuts:save', list),
+  resetShortcuts: () => invoke('shortcuts:reset'),
+
   // 메인 → 렌더러 이벤트 구독
   on: (channel, cb) => {
     const allowed = ['tab:created', 'tab:updated', 'tab:activated', 'tab:closed', 'stats:blocked'];

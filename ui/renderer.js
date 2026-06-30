@@ -90,11 +90,13 @@ $('newtab').onclick = () => S.newTab();
 const panel = $('panel');
 const histpanel = $('histpanel');
 const histlist = $('histlist');
+const editpanel = $('editpanel');
+const editlist = $('editlist');
 let overlayOpen = false;
 
 function showOverlay(el) { el.classList.remove('hidden'); overlayOpen = true; S.setPanel(true); }   // 페이지뷰 숨김
 function closeOverlays() {
-  panel.classList.add('hidden'); histpanel.classList.add('hidden');
+  panel.classList.add('hidden'); histpanel.classList.add('hidden'); editpanel.classList.add('hidden');
   if (overlayOpen) { overlayOpen = false; S.setPanel(false); }
 }
 
@@ -143,6 +145,40 @@ histlist.addEventListener('click', (e) => {
   closeOverlays();
 });
 $('hist-clear').onclick = async () => { await S.clearHistory(); openHist(); };
+
+// ───────── 바로가기 편집 ─────────
+function addEditRow(name, url) {
+  const row = document.createElement('div');
+  row.className = 'edit-row';
+  const n = document.createElement('input'); n.className = 'name'; n.placeholder = '이름'; n.value = name || ''; n.maxLength = 24;
+  const u = document.createElement('input'); u.className = 'url'; u.placeholder = '주소 (예: naver.com)'; u.value = url || ''; u.spellcheck = false;
+  const d = document.createElement('button'); d.className = 'del'; d.textContent = '✕'; d.title = '삭제';
+  d.onclick = () => row.remove();
+  row.append(n, u, d);
+  editlist.appendChild(row);
+  return row;
+}
+async function openEdit() {
+  const items = await S.getShortcuts();
+  editlist.innerHTML = '';
+  (items || []).forEach((s) => addEditRow(s.name, s.url));
+  if (!editlist.children.length) addEditRow('', '');
+  panel.classList.add('hidden'); histpanel.classList.add('hidden');
+  showOverlay(editpanel);
+}
+function collectEdit() {
+  return [...editlist.querySelectorAll('.edit-row')].map((r) => ({
+    name: r.querySelector('.name').value.trim(),
+    url: r.querySelector('.url').value.trim(),
+  })).filter((s) => s.name && s.url);
+}
+
+$('edit-shortcuts').onclick = openEdit;
+$('edit-close').onclick = closeOverlays;
+$('edit-add').onclick = () => { const r = addEditRow('', ''); r.querySelector('.name').focus(); editlist.scrollTop = editlist.scrollHeight; };
+$('edit-save').onclick = async () => { await S.saveShortcuts(collectEdit()); closeOverlays(); };
+$('edit-reset').onclick = async () => { const items = await S.resetShortcuts(); editlist.innerHTML = ''; (items || []).forEach((s) => addEditRow(s.name, s.url)); };
+editpanel.addEventListener('mousedown', (e) => { if (e.target === editpanel) closeOverlays(); });
 
 const bind = (optId, key) => $(optId).addEventListener('change', (e) => S.setSettings({ [key]: e.target.checked }));
 bind('opt-blockAds', 'blockAds');

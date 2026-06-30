@@ -80,3 +80,17 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
 .hist-row .h-url{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hist-row .h-time{font-size:10px;color:#5b6270;margin-top:2px}
 .hist-empty{color:var(--dim);text-align:center;padding:36px 0;font-size:13px}
+
+/* ───── 바로가기 편집 패널 ───── */
+#editpanel{position:fixed;inset:0;background:#0009;display:grid;place-items:center;z-index:10}
+#editpanel.hidden{display:none}
+.edit-card{width:min(560px,94vw);max-height:84vh;display:flex;flex-direction:column}
+#editlist{flex:1;overflow-y:auto;max-height:48vh;margin:10px 0;display:flex;flex-direction:column;gap:8px}
+.edit-row{display:flex;gap:6px;align-items:center}
+.edit-row input{flex:1;min-width:0;height:34px;background:var(--bg);border:1px solid var(--line);
+  border-radius:8px;color:var(--txt);padding:0 11px;font-size:13px;outline:none}
+.edit-row input:focus{border-color:var(--accent)}
+.edit-row input.url{flex:1.7}
+.edit-row .del{flex:none;width:34px;height:34px;border:0;border-radius:8px;background:#f7768e1a;
+  color:var(--danger);cursor:pointer;font-size:15px}
+.edit-row .del:hover{background:#f7768e30}

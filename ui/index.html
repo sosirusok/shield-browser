@@ -45,6 +45,7 @@
 
       <div class="row" style="cursor:default"><span>🔒 흔적 안 남기기 모드</span><span style="color:var(--accent2);font-size:12px">항상 켜짐</span></div>
 
+      <button id="edit-shortcuts" class="bigbtn" style="background:#7aa2f71a;color:var(--accent)">✎ 바로가기 편집</button>
       <button id="clear" class="bigbtn">🧹 지금 바로 데이터 지우기</button>
 
       <p class="note">
@@ -67,6 +68,24 @@
       <div id="histlist"></div>
       <button id="hist-clear" class="bigbtn">🧹 기록 지우기</button>
       <p class="note">기록은 <b>메모리에만</b> 있어요. 창을 닫으면 사라지고 디스크엔 저장되지 않습니다.</p>
+    </div>
+  </div>
+
+  <!-- 바로가기 편집 패널 -->
+  <div id="editpanel" class="hidden">
+    <div class="panel-card edit-card">
+      <div class="panel-head">
+        <h2>바로가기 편집</h2>
+        <button id="edit-close" class="iconbtn">✕</button>
+      </div>
+      <div id="editlist"></div>
+      <button id="edit-add" class="bigbtn" style="background:#9ece6a1a;color:var(--accent2)">＋ 바로가기 추가</button>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="edit-save" class="bigbtn" style="flex:1;background:var(--accent2);color:#0c1208;margin-top:0">저장</button>
+        <button id="edit-reset" class="bigbtn" style="flex:0 0 auto;margin-top:0">기본값</button>
+      </div>
+      <p class="note">이름과 주소를 직접 등록·수정·삭제하세요. <b>저장</b>하면 새 탭에 바로 반영됩니다.
+        대표 이미지는 이름에서 자동 생성돼요.</p>
     </div>
   </div>
 
