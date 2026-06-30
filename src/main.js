@@ -38,8 +38,8 @@ app.commandLine.appendSwitch('disable-breakpad');               // 크래시 리
 app.commandLine.appendSwitch('disable-quic');                   // QUIC(HTTP/3) 끄기 — 학교망 UDP 차단으로 인한 접속 실패 회피
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512'); // 저RAM 보호
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');  // 디스크에 GPU 셰이더 캐시 안 남김(노트북 독립성↑)
-app.commandLine.appendSwitch('enable-gpu-rasterization');       // GPU 가속 렌더링(속도↑)
-app.commandLine.appendSwitch('enable-zero-copy');               // GPU 합성 zero-copy(스크롤/렌더 속도↑)
+// ※ enable-zero-copy / enable-gpu-rasterization 는 약한 내장 GPU + 영상(인스타 스토리 등)에서
+//   렌더러 크래시를 유발해 제거함. Chromium 기본값(안전 폴백 포함)이 더 안정적.
 
 const TOOLBAR_HEIGHT = 88;          // 탭바(36) + 내비/주소창(52)
 const PARTITION = 'shieldweb';      // 비영속(메모리 전용) 파티션 — 디스크에 흔적 안 남김
@@ -273,6 +273,18 @@ function createTab(input) {
     }
     tab.errURL = validatedURL;
     wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(errorPage(validatedURL, desc, code)));
+  });
+
+  // 렌더러 크래시(메모리 부족/GPU 등) → Chromium 크래시 화면 대신 자동 새로고침으로 복구
+  wc.on('render-process-gone', (e, details) => {
+    const u = wc.getURL();
+    if (!u || u.startsWith('data:') || details.reason === 'clean-exit' || details.reason === 'killed') return;
+    const key = 'crash:' + u;
+    const tries = tab.retry[key] || 0;
+    if (/^https?:/i.test(u) && tries < 2) {                 // 무한 루프 방지: 최대 2회 자동 복구
+      tab.retry[key] = tries + 1;
+      setTimeout(() => { if (!wc.isDestroyed()) wc.reload(); }, 700);
+    }
   });
 
   tabs.set(id, tab);
