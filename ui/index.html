@@ -57,6 +57,19 @@
     </div>
   </div>
 
+  <!-- 방문 기록 패널 (Ctrl+H) -->
+  <div id="histpanel" class="hidden">
+    <div class="panel-card hist-card">
+      <div class="panel-head">
+        <h2>방문 기록 · 이번 세션</h2>
+        <button id="hist-close" class="iconbtn">✕</button>
+      </div>
+      <div id="histlist"></div>
+      <button id="hist-clear" class="bigbtn">🧹 기록 지우기</button>
+      <p class="note">기록은 <b>메모리에만</b> 있어요. 창을 닫으면 사라지고 디스크엔 저장되지 않습니다.</p>
+    </div>
+  </div>
+
   <script src="renderer.js"></script>
 </body>
 </html>

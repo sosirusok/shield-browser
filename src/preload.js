@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('shield', {
   clearData: () => invoke('privacy:clear'),
   getStats: () => invoke('privacy:stats'),
 
+  // 방문 기록(메모리 전용)
+  getHistory: () => invoke('history:get'),
+  clearHistory: () => invoke('history:clear'),
+
   // 메인 → 렌더러 이벤트 구독
   on: (channel, cb) => {
     const allowed = ['tab:created', 'tab:updated', 'tab:activated', 'tab:closed', 'stats:blocked'];

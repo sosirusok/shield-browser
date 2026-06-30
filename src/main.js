@@ -7,35 +7,31 @@
  *  - 창의 메인 webContents = 브라우저 "크롬"(상단 툴바/탭바)  →  ui/index.html (제목표시줄 없음)
  *  - 각 탭 = WebContentsView (win.contentView 위에 겹쳐 올림). 활성 탭만 보임.
  *  - 광고/트래커 차단 = @ghostery/adblocker-electron (EasyList + EasyPrivacy 프리빌트)
- *  - 새 탭/첫 화면 = ui/newtab.html (바로가기 스피드다이얼). 흰 화면 대신.
+ *  - 새 탭/첫 화면 = ui/newtab.html (바로가기 스피드다이얼).
+ *  - Ctrl+H = 방문 기록(메모리 전용, 세션 한정).
  *
  * 프라이버시(이 노트북에 대한):
- *  - 세션은 메모리 전용(비영속) — 쿠키/스토리지/캐시를 디스크에 남기지 않음. 종료하면 전부 사라짐.
- *    → 자동 로그인/방문 흔적이 노트북에 안 남음(매번 새 시작). 광고차단·DNT/GPC·권한 기본거부 유지.
- *  - 깨끗한 UA(실제 Chromium 버전과 일치)로 핑거프린트 표면 축소, 텔레메트리/구글서비스 off.
+ *  - 세션은 메모리 전용(비영속) — 쿠키/스토리지/캐시/기록을 디스크에 남기지 않음. 종료하면 전부 사라짐.
+ *  - 부팅 시 이전 버전의 영속 데이터 잔재를 삭제. 크로스사이트 Referer 제거. 구글 프라이버시샌드박스/Topics off.
+ *  - 권한 기본거부, DNT/GPC, WebRTC IP 누출 차단, 깨끗한 UA(실제 Chromium 버전 일치), 텔레메트리 off.
  *
  * 접속성:
- *  - http/https 둘 다. 베어 도메인은 기본 http 로 엶(선생님 http 사이트 등). https 사이트는 서버가 알아서 https 로 리다이렉트.
- *  - QUIC(HTTP/3) 비활성 — 학교망이 UDP/QUIC 을 막아 생기는 접속 실패(chess.com 등) 회피, TCP 로만 연결.
- *  - 메인프레임 연결 실패는 1회 자동 재시도(학교망의 일시적 TLS 끊김 흡수).
+ *  - 베어 도메인은 기본 http (https 사이트는 서버가 리다이렉트). 명시 스킴 유지.
+ *  - QUIC(HTTP/3) 비활성(학교망 UDP 차단 회피). 메인프레임 연결 실패는 최대 3회 자동 재시도.
  *
- * ※ "웹사이트/광고사로부터의" 프라이버시 + 노트북 디스크 흔적 최소화용.
- *   기기 소유자(학교)가 OS 관리자 권한으로 설치한 모니터링이나 통신사/기관의 망 차단은 우회하지 않음 — 원리상 불가하며 의도하지도 않음.
+ * ※ "웹/광고사로부터의" 프라이버시 + 노트북 디스크 흔적 최소화용.
+ *   기기 소유자(학교) 모니터링이나 통신사/기관의 망 차단(TLS/SNI 차단 등)은 우회하지 않음 — 원리상 불가하며 의도하지도 않음.
  */
 
 const { app, BrowserWindow, WebContentsView, session, ipcMain, shell, nativeTheme } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
-// ───────────────────────────── 저메모리 / 프라이버시 / 접속성 런타임 플래그 (app ready 이전 필수) ─────────────────────────────
+// ───────────────────────────── 런타임 플래그 (app ready 이전 필수) ─────────────────────────────
 app.commandLine.appendSwitch('disable-features', [
-  'OptimizationGuideModelDownloading',
-  'OptimizationHints',
-  'Translate',
-  'MediaRouter',
-  'DialMediaRouteProvider',
-  'AutofillServerCommunication',
-  'CalculateNativeWinOcclusion',
+  'OptimizationGuideModelDownloading', 'OptimizationHints', 'Translate',
+  'MediaRouter', 'DialMediaRouteProvider', 'AutofillServerCommunication', 'CalculateNativeWinOcclusion',
+  'PrivacySandboxAdsAPIs', 'Topics', 'InterestCohort', 'FledgeBiddingAndAuction',  // 구글 광고추적(Topics/FLoC) off
 ].join(','));
 app.commandLine.appendSwitch('disable-domain-reliability');     // 구글 도메인 신뢰성 텔레메트리 끄기
 app.commandLine.appendSwitch('disable-breakpad');               // 크래시 리포트 전송 끄기
@@ -48,25 +44,33 @@ const USERDATA = () => app.getPath('userData');
 const SETTINGS_PATH = () => path.join(USERDATA(), 'settings.json');
 const NEWTAB = path.join(__dirname, '..', 'ui', 'newtab.html');   // 스피드다이얼(새 탭)
 
-// 깨끗한 UA — 실제 Chromium(Electron 35 = Chrome 134)과 버전 일치 → 봇 차단/핑거프린트 튐 방지, 크롬 사용자와 블렌딩.
+// 깨끗한 UA — 실제 Chromium(Electron 35 = Chrome 134)과 버전 일치 → 봇 차단/핑거프린트 튐 방지.
 const CLEAN_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
 
 // ───────────────────────────── 설정 ─────────────────────────────
-const DEFAULT_SETTINGS = {
-  blockAds: true,
-  denyPermissions: true,
-};
+const DEFAULT_SETTINGS = { blockAds: true, denyPermissions: true };
 let settings = { ...DEFAULT_SETTINGS };
 
 function loadSettings() {
-  try {
-    const raw = fs.readFileSync(SETTINGS_PATH(), 'utf8');
-    settings = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-  } catch { /* 최초 실행 */ }
+  try { settings = { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(SETTINGS_PATH(), 'utf8')) }; } catch {}
 }
 function saveSettings() {
   try { fs.writeFileSync(SETTINGS_PATH(), JSON.stringify(settings, null, 2)); } catch {}
+}
+
+// ───────────────────────────── 방문 기록 (메모리 전용, 세션 한정) ─────────────────────────────
+const history = [];
+function pushHistory(url) {
+  if (!/^https?:\/\//i.test(url)) return;
+  const last = history[history.length - 1];
+  if (last && last.url === url) return;             // 연속 중복 방지
+  history.push({ url, title: url, t: Date.now() });
+  if (history.length > 800) history.shift();
+}
+function updateHistoryTitle(url, title) {
+  if (!title) return;
+  for (let i = history.length - 1; i >= 0; i--) { if (history[i].url === url) { history[i].title = title; return; } }
 }
 
 // ───────────────────────────── 광고/트래커 차단 ─────────────────────────────
@@ -74,18 +78,13 @@ let blocker = null;
 let blockedTotal = 0;
 let blockedDirty = false;
 
-// 필터는 로컬 번들(filters/)에서 읽는다.
-// 학교망이 raw.githubusercontent.com 을 차단하므로 런타임 CDN 의존을 없앰.
 const FILTER_FILES = ['easylist.txt', 'easyprivacy.txt'];
-const FILTER_MIRRORS = [
-  'https://easylist.to/easylist/easylist.txt',
-  'https://easylist.to/easylist/easyprivacy.txt',
-];
+const FILTER_MIRRORS = ['https://easylist.to/easylist/easylist.txt', 'https://easylist.to/easylist/easyprivacy.txt'];
 
 function filtersDir() {
   const packaged = path.join(process.resourcesPath || '', 'filters');
-  if (fs.existsSync(packaged)) return packaged;        // 패키징(asar 외부) 시
-  return path.join(__dirname, '..', 'filters');        // 개발 시
+  if (fs.existsSync(packaged)) return packaged;
+  return path.join(__dirname, '..', 'filters');
 }
 
 async function setupAdblock(sess) {
@@ -95,20 +94,15 @@ async function setupAdblock(sess) {
   const cachePath = path.join(USERDATA(), 'adblock-engine.bin');
   const keyPath = path.join(USERDATA(), 'adblock-engine.key');
 
-  // 캐시 키 = 필터 파일 크기 조합 (바뀌면 재파싱)
   let key = '';
   try { key = files.map((f) => fs.statSync(f).size).join('-'); } catch {}
 
-  // 1) 직렬화 캐시가 유효하면 빠르게 복원
   if (key) {
     try {
-      if (fs.readFileSync(keyPath, 'utf8') === key) {
-        blocker = ElectronBlocker.deserialize(fs.readFileSync(cachePath));
-      }
+      if (fs.readFileSync(keyPath, 'utf8') === key) blocker = ElectronBlocker.deserialize(fs.readFileSync(cachePath));
     } catch { blocker = null; }
   }
 
-  // 2) 캐시 없으면 로컬 번들 파싱, 그래도 없으면 미러에서 1회 fetch(Chromium 스택)
   if (!blocker) {
     let text = '';
     try {
@@ -120,40 +114,34 @@ async function setupAdblock(sess) {
       text = parts.join('\n');
     }
     blocker = ElectronBlocker.parse(text);
-    try {
-      if (key) {                          // bin 과 key 는 항상 함께 저장(정합성)
-        fs.writeFileSync(cachePath, Buffer.from(blocker.serialize()));
-        fs.writeFileSync(keyPath, key);
-      }
-    } catch {}
+    try { if (key) { fs.writeFileSync(cachePath, Buffer.from(blocker.serialize())); fs.writeFileSync(keyPath, key); } } catch {}
   }
 
-  // 차단 카운터는 즉시 증가시키되, 렌더러 통지는 스로틀(저RAM에서 IPC 폭주 방지)
   blocker.on('request-blocked', () => { blockedTotal++; blockedDirty = true; });
   setAdblockEnabled(sess, settings.blockAds);
 }
 
 function setAdblockEnabled(sess, enabled) {
   if (!blocker) return;
-  try {
-    if (enabled) blocker.enableBlockingInSession(sess);
-    else blocker.disableBlockingInSession(sess);   // 미활성 상태면 throw → 무시
-  } catch {}
+  try { if (enabled) blocker.enableBlockingInSession(sess); else blocker.disableBlockingInSession(sess); } catch {}
 }
 
 // ───────────────────────────── 프라이버시 하드닝 ─────────────────────────────
 function hardenSession(sess) {
   sess.setUserAgent(CLEAN_UA);
 
-  // DNT + Global Privacy Control 헤더 추가 (onBeforeSendHeaders — 광고차단과 다른 이벤트라 충돌 없음)
   sess.webRequest.onBeforeSendHeaders((details, cb) => {
     const headers = { ...details.requestHeaders };
     headers['DNT'] = '1';
     headers['Sec-GPC'] = '1';
+    // 크로스 사이트 Referer 제거(추적 표면 축소)
+    const ref = headers['Referer'] || headers['referer'];
+    if (ref) {
+      try { if (new URL(ref).origin !== new URL(details.url).origin) { delete headers['Referer']; delete headers['referer']; } } catch {}
+    }
     cb({ requestHeaders: headers });
   });
 
-  // 권한 기본 거부(위치/알림/카메라/마이크 등). 전체화면만 허용.
   sess.setPermissionRequestHandler((wc, permission, callback) => {
     if (!settings.denyPermissions) return callback(true);
     callback(permission === 'fullscreen');
@@ -169,6 +157,7 @@ async function clearAllData(sess) {
     storages: ['cookies', 'localstorage', 'indexdb', 'websql', 'serviceworkers', 'cachestorage', 'shadercache'],
   });
   await sess.clearCache();
+  history.length = 0;
   blockedTotal = 0;
   if (win && !win.isDestroyed()) win.webContents.send('stats:blocked', blockedTotal);
 }
@@ -195,11 +184,10 @@ function sendTabUpdate(id) {
   if (!t || !win || win.isDestroyed()) return;
   const wc = t.view.webContents;
   let url = wc.getURL();
-  if (url.startsWith('data:')) url = t.errURL || '';                  // 에러페이지 data:URL → 실패한 원래 URL
-  else if (url === 'about:blank' || url.includes('newtab.html')) url = '';  // 스피드다이얼/빈 탭 → 주소창 빈칸
+  if (url.startsWith('data:')) url = t.errURL || '';
+  else if (url === 'about:blank' || url.includes('newtab.html')) url = '';
   win.webContents.send('tab:updated', {
-    id,
-    url,
+    id, url,
     title: wc.getTitle() || url,
     loading: wc.isLoading(),
     canGoBack: wc.navigationHistory.canGoBack(),
@@ -213,45 +201,45 @@ function createTab(input) {
   const view = new WebContentsView({
     webPreferences: {
       partition: PARTITION,
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-      spellcheck: false,
-      webSecurity: true,
-      backgroundThrottling: true,   // 비활성 탭 자원 절약
+      sandbox: true, contextIsolation: true, nodeIntegration: false,
+      spellcheck: false, webSecurity: true, backgroundThrottling: true,
     },
   });
   const tab = { id, view, errURL: '', retry: {} };
   const wc = view.webContents;
   wc.setWebRTCIPHandlingPolicy('default_public_interface_only'); // 로컬 IP 누출 차단
 
-  // target=_blank / window.open — http(s)만 새 탭, 안전 스킴만 OS로, 그 외(file:/ms-*/임의)는 무시
   wc.setWindowOpenHandler(({ url }) => {
     try {
       const proto = new URL(url).protocol;
       if (proto === 'http:' || proto === 'https:') createTab(url);
       else if (proto === 'mailto:' || proto === 'tel:') shell.openExternal(url);
-      // file:, smb:, ms-*:, 기타 임의 스킴은 무시(OS 핸들러 실행 차단)
-    } catch { /* 잘못된 URL 무시 */ }
+    } catch {}
     return { action: 'deny' };
   });
 
   const update = () => sendTabUpdate(id);
   wc.on('did-start-loading', update);
   wc.on('did-stop-loading', update);
-  wc.on('did-navigate', () => { const u = wc.getURL(); if (!u.startsWith('data:')) { tab.errURL = ''; tab.retry = {}; } update(); });
-  wc.on('did-navigate-in-page', update);
-  wc.on('page-title-updated', update);
+  wc.on('did-navigate', () => {
+    const u = wc.getURL();
+    if (!u.startsWith('data:')) { tab.errURL = ''; tab.retry = {}; }
+    pushHistory(u);
+    update();
+  });
+  wc.on('did-navigate-in-page', () => { pushHistory(wc.getURL()); update(); });
+  wc.on('page-title-updated', () => { updateHistoryTitle(wc.getURL(), wc.getTitle()); update(); });
   wc.on('did-fail-load', (e, code, desc, validatedURL, isMainFrame) => {
-    if (!isMainFrame || code === -3) return;          // -3 = ERR_ABORTED(무시)
-    const isCert = code <= -200 && code > -300;        // 인증서 오류(-2xx)는 보안상 재시도 안 함
+    if (!isMainFrame || code === -3) return;            // -3 = ERR_ABORTED(무시)
+    const isCert = code <= -200 && code > -300;          // 인증서 오류(-2xx)는 보안상 재시도 안 함
     const tries = tab.retry[validatedURL] || 0;
-    if (!isCert && tries < 1 && validatedURL && !validatedURL.startsWith('data:')) {
-      tab.retry[validatedURL] = tries + 1;             // 학교망 일시적 끊김(SSL/연결) 흡수: 1회 자동 재시도
-      setTimeout(() => { if (!wc.isDestroyed()) wc.loadURL(validatedURL); }, 500);
+    if (!isCert && tries < 5 && validatedURL && !validatedURL.startsWith('data:')) {
+      tab.retry[validatedURL] = tries + 1;               // 학교망 일시적 끊김(SSL/연결) 흡수: 최대 5회 자동 재시도
+      const delay = [400, 900, 1600, 2400, 3000][tries] || 3000;
+      setTimeout(() => { if (!wc.isDestroyed()) wc.loadURL(validatedURL); }, delay);
       return;
     }
-    tab.errURL = validatedURL;                         // 주소창엔 data:URL 대신 실패한 원래 URL 표시
+    tab.errURL = validatedURL;
     wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(errorPage(validatedURL, desc, code)));
   });
 
@@ -261,7 +249,7 @@ function createTab(input) {
 
   win.webContents.send('tab:created', { id });
   activateTab(id);
-  if (!input || input === 'about:blank' || !loadResolved(wc, input)) wc.loadFile(NEWTAB);  // 빈 입력 → 스피드다이얼
+  if (!input || input === 'about:blank' || !loadResolved(wc, input)) wc.loadFile(NEWTAB);
   return id;
 }
 
@@ -289,15 +277,15 @@ function closeTab(id) {
   }
 }
 
-// URL 정규화 — 검색 엔진 없음. URL 같으면 이동, 아니면 null. 베어 도메인은 기본 http.
+// URL 정규화 — 검색 엔진 없음. 베어 도메인은 기본 http.
 function normalizeURL(input) {
   const s = (input || '').trim();
   if (!s) return null;
-  if (/^(https?|file|about):/i.test(s)) return s;                 // 명시 스킴 그대로
-  if (/^[a-z][a-z0-9+.\-]*:/i.test(s)) return null;              // 그 외 스킴(ftp:/javascript:/chrome:/data: 등) 거부
-  if (/^(localhost|127(\.\d{1,3}){3}|\[[0-9a-f:]+\])([:/]|$)/i.test(s)) return 'http://' + s;  // 로컬/루프백
-  if (/^[^\s/]+\.[^\s/]{2,}/.test(s)) return 'http://' + s;       // 도메인.tld → 기본 http (https 사이트는 서버가 리다이렉트)
-  return null;                                                    // 검색어로 보이면 이동 안 함
+  if (/^(https?|file|about):/i.test(s)) return s;
+  if (/^[a-z][a-z0-9+.\-]*:/i.test(s)) return null;
+  if (/^(localhost|127(\.\d{1,3}){3}|\[[0-9a-f:]+\])([:/]|$)/i.test(s)) return 'http://' + s;
+  if (/^[^\s/]+\.[^\s/]{2,}/.test(s)) return 'http://' + s;
+  return null;
 }
 
 function loadResolved(wc, input) {
@@ -308,8 +296,7 @@ function loadResolved(wc, input) {
 }
 
 function escHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function errorPage(url, desc, code) {
@@ -342,8 +329,10 @@ function registerIPC(sess) {
   ipcMain.handle('tab:reload', (e, id) => { const t = tabs.get(id); if (t) t.view.webContents.reload(); });
   ipcMain.handle('tab:stop', (e, id) => { const t = tabs.get(id); if (t) t.view.webContents.stop(); });
 
-  // 설정 패널/메뉴 열릴 때 활성 페이지뷰 숨김(크롬 오버레이가 보이도록)
   ipcMain.handle('ui:panel', (e, open) => { const t = tabs.get(activeId); if (t) t.view.setVisible(!open); });
+
+  ipcMain.handle('history:get', () => history.slice().reverse());   // 최신 먼저
+  ipcMain.handle('history:clear', () => { history.length = 0; return true; });
 
   ipcMain.handle('settings:get', () => settings);
   ipcMain.handle('settings:set', (e, patch) => {
@@ -362,6 +351,9 @@ async function boot() {
   app.userAgentFallback = CLEAN_UA;
   nativeTheme.themeSource = 'dark';
 
+  // 이전 버전(영속 파티션) 잔존 데이터 삭제 — 디스크 흔적 제거
+  try { const oldp = session.fromPartition('persist:web'); await oldp.clearStorageData(); await oldp.clearCache(); } catch {}
+
   const sess = session.fromPartition(PARTITION);   // 메모리 전용(비영속)
   hardenSession(sess);
   try { await setupAdblock(sess); }
@@ -373,29 +365,22 @@ async function boot() {
     title: 'Shield',
     icon: path.join(__dirname, '..', 'assets', 'shield.ico'),
     autoHideMenuBar: true,
-    titleBarStyle: 'hidden',                                        // OS 제목표시줄 제거 → 화면 공간 회복
-    titleBarOverlay: { color: '#171a21', symbolColor: '#cdd3de', height: 36 }, // 최소/최대/닫기 버튼은 탭바에 겹쳐 유지
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#171a21', symbolColor: '#cdd3de', height: 36 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
+      contextIsolation: true, sandbox: true, nodeIntegration: false,
     },
   });
   win.removeMenu();
 
-  // 크롬(메인) 창은 ui/index.html 밖으로 못 나가게 고정(심층방어)
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e, u) => { if (!u.startsWith('file://')) e.preventDefault(); });
 
   registerIPC(sess);
 
-  // 차단 카운터를 주기적으로만 렌더러에 통지(스로틀)
   const statsTimer = setInterval(() => {
-    if (blockedDirty && win && !win.isDestroyed()) {
-      win.webContents.send('stats:blocked', blockedTotal);
-      blockedDirty = false;
-    }
+    if (blockedDirty && win && !win.isDestroyed()) { win.webContents.send('stats:blocked', blockedTotal); blockedDirty = false; }
   }, 300);
 
   win.webContents.on('did-finish-load', () => createTab());   // 첫 탭 = 스피드다이얼
@@ -410,7 +395,6 @@ app.whenReady().then(boot);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) boot(); });
 
-// 보안: 외부에서 새 webContents가 비정상 생성되지 않도록
 app.on('web-contents-created', (e, wc) => {
   wc.on('will-attach-webview', (evt) => evt.preventDefault()); // <webview> 비활성
 });

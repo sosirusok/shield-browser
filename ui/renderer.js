@@ -86,22 +86,63 @@ $('forward').onclick = () => S.forward(activeId);
 $('reload').onclick = () => S.reload(activeId);
 $('newtab').onclick = () => S.newTab();
 
-// ───────── 설정 패널 ─────────
+// ───────── 오버레이(설정/기록) ─────────
 const panel = $('panel');
-let panelOpen = false;
+const histpanel = $('histpanel');
+const histlist = $('histlist');
+let overlayOpen = false;
+
+function showOverlay(el) { el.classList.remove('hidden'); overlayOpen = true; S.setPanel(true); }   // 페이지뷰 숨김
+function closeOverlays() {
+  panel.classList.add('hidden'); histpanel.classList.add('hidden');
+  if (overlayOpen) { overlayOpen = false; S.setPanel(false); }
+}
+
 async function openPanel() {
   const s = await S.getSettings();
   $('opt-blockAds').checked = !!s.blockAds;
   $('opt-denyPermissions').checked = !!s.denyPermissions;
-  panel.classList.remove('hidden');
-  panelOpen = true;
-  S.setPanel(true);   // 페이지뷰 숨김
+  histpanel.classList.add('hidden');
+  showOverlay(panel);
 }
-function closePanel() { panel.classList.add('hidden'); panelOpen = false; S.setPanel(false); }
+
+function fmtTime(t) {
+  const d = new Date(t);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+async function openHist() {
+  const items = await S.getHistory();
+  histlist.innerHTML = '';
+  if (!items.length) {
+    histlist.innerHTML = '<div class="hist-empty">아직 방문 기록이 없어요</div>';
+  } else {
+    for (const it of items) {
+      const row = document.createElement('div');
+      row.className = 'hist-row';
+      row.dataset.url = it.url;
+      row.innerHTML = '<span class="h-title"></span><span class="h-url"></span><span class="h-time"></span>';
+      row.querySelector('.h-title').textContent = (it.title && it.title !== it.url) ? it.title : it.url;
+      row.querySelector('.h-url').textContent = it.url;
+      row.querySelector('.h-time').textContent = fmtTime(it.t);
+      histlist.appendChild(row);
+    }
+  }
+  panel.classList.add('hidden');
+  showOverlay(histpanel);
+}
 
 $('menu').onclick = openPanel;
-$('panel-close').onclick = closePanel;
-panel.addEventListener('mousedown', (e) => { if (e.target === panel) closePanel(); });
+$('panel-close').onclick = closeOverlays;
+$('hist-close').onclick = closeOverlays;
+panel.addEventListener('mousedown', (e) => { if (e.target === panel) closeOverlays(); });
+histpanel.addEventListener('mousedown', (e) => { if (e.target === histpanel) closeOverlays(); });
+histlist.addEventListener('click', (e) => {
+  const row = e.target.closest('.hist-row');
+  if (!row) return;
+  S.navigate(activeId, row.dataset.url);
+  closeOverlays();
+});
+$('hist-clear').onclick = async () => { await S.clearHistory(); openHist(); };
 
 const bind = (optId, key) => $(optId).addEventListener('change', (e) => S.setSettings({ [key]: e.target.checked }));
 bind('opt-blockAds', 'blockAds');
@@ -116,9 +157,14 @@ $('clear').onclick = async () => {
 // ───────── 키보드 단축키 ─────────
 window.addEventListener('keydown', (e) => {
   const ctrl = e.ctrlKey || e.metaKey;
-  // 패널이 열린 채 탭/뷰를 건드리면 페이지뷰가 패널을 덮어버리므로 먼저 닫는다
-  if (panelOpen && ((ctrl && (e.key === 't' || e.key === 'w' || e.key === 'l' || e.key === 'r')) || e.key === 'F5' || e.key === 'Escape')) {
-    closePanel();
+  if (ctrl && (e.key === 'h' || e.key === 'H')) {   // 방문 기록 토글
+    e.preventDefault();
+    if (!histpanel.classList.contains('hidden')) closeOverlays(); else openHist();
+    return;
+  }
+  // 오버레이가 열린 채 탭/뷰를 건드리면 페이지뷰가 덮어버리므로 먼저 닫는다
+  if (overlayOpen && ((ctrl && (e.key === 't' || e.key === 'w' || e.key === 'l' || e.key === 'r')) || e.key === 'F5' || e.key === 'Escape')) {
+    closeOverlays();
     if (e.key === 'Escape') { e.preventDefault(); return; }
   }
   if (ctrl && e.key === 't') { e.preventDefault(); S.newTab(); }
