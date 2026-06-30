@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https: http:;" />
+  <title>Shield</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 탭 바 -->
+  <div id="tabstrip">
+    <div id="tabs"></div>
+    <button id="newtab" class="iconbtn" title="새 탭 (Ctrl+T)">＋</button>
+  </div>
+
+  <!-- 내비 / 주소창 -->
+  <div id="navbar">
+    <button id="back" class="iconbtn" title="뒤로">‹</button>
+    <button id="forward" class="iconbtn" title="앞으로">›</button>
+    <button id="reload" class="iconbtn" title="새로고침">⟳</button>
+    <div id="urlwrap">
+      <span id="lock" title="연결 상태">🔒</span>
+      <input id="url" type="text" spellcheck="false" autocomplete="off"
+             placeholder="링크를 붙여넣고 Enter (검색 없음)" />
+    </div>
+    <button id="shield" class="shield" title="이번 세션 차단 수">
+      <span class="sh-ico">🛡</span><span id="blocked">0</span>
+    </button>
+    <button id="menu" class="iconbtn" title="설정">☰</button>
+  </div>
+
+  <!-- 설정 패널(오버레이) -->
+  <div id="panel" class="hidden">
+    <div class="panel-card">
+      <div class="panel-head">
+        <h2>설정 · 프라이버시</h2>
+        <button id="panel-close" class="iconbtn">✕</button>
+      </div>
+
+      <label class="row"><span>광고·트래커 차단</span>
+        <input type="checkbox" id="opt-blockAds" /></label>
+      <label class="row"><span>권한 기본 거부 (위치·카메라·알림)</span>
+        <input type="checkbox" id="opt-denyPermissions" /></label>
+      <label class="row"><span>종료 시 모든 데이터 삭제</span>
+        <input type="checkbox" id="opt-eraseOnExit" /></label>
+
+      <button id="clear" class="bigbtn">🧹 지금 모든 사이트 데이터 지우기</button>
+
+      <p class="note">
+        이 브라우저는 <b>웹사이트·광고사의 추적</b>으로부터 보호합니다(쿠키·트래커·핑거프린트 표면 축소).
+        기기에 관리자 권한으로 설치된 모니터링 소프트웨어는 우회하지 않습니다.
+      </p>
+      <p class="ver">Shield 0.1 · Chromium 엔진</p>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "shield-browser",
+  "version": "0.1.0",
+  "description": "가볍고 빠른 프라이버시 브라우저 — 광고/트래커 차단 내장 (Chromium 엔진)",
+  "main": "src/main.js",
+  "author": "sosirusok",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "start:debug": "electron . --enable-logging"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.0.0"
+  },
+  "devDependencies": {
+    "electron": "^35.7.5"
+  }
+}
