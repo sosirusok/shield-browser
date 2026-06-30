@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('shield', {
   forward: (id) => invoke('tab:forward', id),
   reload: (id) => invoke('tab:reload', id),
   stop: (id) => invoke('tab:stop', id),
+  home: (id) => invoke('tab:home', id),
+  toggleFullscreen: () => invoke('win:toggleFullscreen'),
 
   // UI / 설정 / 프라이버시
   setPanel: (open) => invoke('ui:panel', open),
@@ -31,6 +33,7 @@ contextBridge.exposeInMainWorld('shield', {
   getShortcuts: () => invoke('shortcuts:get'),
   saveShortcuts: (list) => invoke('shortcuts:save', list),
   resetShortcuts: () => invoke('shortcuts:reset'),
+  addShortcut: (item) => invoke('shortcuts:add', item),
 
   // 메인 → 렌더러 이벤트 구독
   on: (channel, cb) => {

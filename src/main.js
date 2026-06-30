@@ -193,7 +193,15 @@ function pageBounds() {
   return { x: 0, y: TOOLBAR_HEIGHT, width: w, height: Math.max(0, h - TOOLBAR_HEIGHT) };
 }
 
+let immersiveTab = null;   // 전체화면(HTML5 영상/F11) 시 화면 전체(툴바까지)를 덮는 탭
+
 function relayout() {
+  if (!win || win.isDestroyed()) return;
+  if (immersiveTab != null && tabs.has(immersiveTab)) {
+    const [w, h] = win.getContentSize();
+    tabs.get(immersiveTab).view.setBounds({ x: 0, y: 0, width: w, height: h });   // 툴바까지 덮음
+    return;
+  }
   const t = tabs.get(activeId);
   if (t) t.view.setBounds(pageBounds());
 }
@@ -287,6 +295,18 @@ function createTab(input) {
     }
   });
 
+  // HTML5 전체화면(유튜브 영상 등) — 창을 전체화면으로 + 페이지뷰를 화면 전체로 확장
+  wc.on('enter-html-full-screen', () => {
+    immersiveTab = id;
+    if (win && !win.isDestroyed() && !win.isFullScreen()) win.setFullScreen(true);
+    relayout();
+  });
+  wc.on('leave-html-full-screen', () => {
+    if (immersiveTab === id) immersiveTab = null;
+    if (win && !win.isDestroyed() && win.isFullScreen()) win.setFullScreen(false);
+    relayout();
+  });
+
   tabs.set(id, tab);
   win.contentView.addChildView(view);
   view.setVisible(false);
@@ -372,6 +392,26 @@ function registerIPC(sess) {
   ipcMain.handle('tab:forward', (e, id) => { const t = tabs.get(id); if (t && t.view.webContents.navigationHistory.canGoForward()) t.view.webContents.navigationHistory.goForward(); });
   ipcMain.handle('tab:reload', (e, id) => { const t = tabs.get(id); if (t) t.view.webContents.reload(); });
   ipcMain.handle('tab:stop', (e, id) => { const t = tabs.get(id); if (t) t.view.webContents.stop(); });
+  ipcMain.handle('tab:home', (e, id) => { const t = tabs.get(id); if (t) loadNewTab(t.view.webContents, t); });   // 홈 = 스피드다이얼
+
+  ipcMain.handle('win:toggleFullscreen', () => {
+    if (!win || win.isDestroyed()) return;
+    const target = !win.isFullScreen();
+    immersiveTab = target ? activeId : null;
+    win.setFullScreen(target);
+    relayout();
+  });
+
+  ipcMain.handle('shortcuts:add', (e, item) => {   // 현재 페이지 한 번에 바로가기 추가(⭐)
+    if (item && item.url) {
+      const url = normalizeURL(String(item.url).trim()) || String(item.url).trim();
+      if (/^https?:/i.test(url) && !shortcuts.some((s) => s.url === url)) {
+        shortcuts.push({ name: String(item.name || url).slice(0, 24), url });
+        saveShortcuts(); refreshNewTabs();
+      }
+    }
+    return shortcuts;
+  });
 
   ipcMain.handle('ui:panel', (e, open) => { const t = tabs.get(activeId); if (t) t.view.setVisible(!open); });
 
@@ -451,6 +491,7 @@ async function boot() {
 
   win.webContents.on('did-finish-load', () => createTab());   // 첫 탭 = 스피드다이얼
   win.on('resize', relayout);
+  win.on('leave-full-screen', () => { immersiveTab = null; relayout(); });   // ESC 등으로 전체화면 빠져나올 때 복원
   win.on('closed', () => { clearInterval(statsTimer); win = null; });
 
   await win.loadFile(path.join(__dirname, '..', 'ui', 'index.html'));

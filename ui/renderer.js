@@ -85,6 +85,14 @@ $('back').onclick = () => S.back(activeId);
 $('forward').onclick = () => S.forward(activeId);
 $('reload').onclick = () => S.reload(activeId);
 $('newtab').onclick = () => S.newTab();
+$('home').onclick = () => S.home(activeId);
+$('star').onclick = async () => {
+  const st = tabState.get(activeId) || {};
+  if (!st.url || !/^https?:/i.test(st.url)) { flashUrl(); return; }   // 새 탭/빈 페이지는 추가할 게 없음
+  await S.addShortcut({ name: (st.title && st.title !== st.url) ? st.title : st.url, url: st.url });
+  const star = $('star'); star.textContent = '★'; star.classList.add('on');
+  setTimeout(() => { star.textContent = '☆'; star.classList.remove('on'); }, 1300);
+};
 
 // ───────── 오버레이(설정/기록) ─────────
 const panel = $('panel');
@@ -198,6 +206,8 @@ window.addEventListener('keydown', (e) => {
     if (!histpanel.classList.contains('hidden')) closeOverlays(); else openHist();
     return;
   }
+  if (e.key === 'F11') { e.preventDefault(); S.toggleFullscreen(); return; }          // 전체화면 토글
+  if (e.altKey && e.key === 'Home') { e.preventDefault(); S.home(activeId); return; } // 홈(바로가기)
   // 오버레이가 열린 채 탭/뷰를 건드리면 페이지뷰가 덮어버리므로 먼저 닫는다
   if (overlayOpen && ((ctrl && (e.key === 't' || e.key === 'w' || e.key === 'l' || e.key === 'r')) || e.key === 'F5' || e.key === 'Escape')) {
     closeOverlays();
